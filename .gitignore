@@ -44,5 +44,9 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 
+# Signing secrets — never commit (CI uses GitHub Secrets instead)
+/android/app/*.keystore
+/android/key.properties
+
 # Widget Preview related
 .widget_preview/

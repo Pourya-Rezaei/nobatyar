@@ -1,0 +1,77 @@
+name: Build iOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach the IPA to'
+        required: false
+        default: 'v1.0.0'
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-ios:
+    name: Build unsigned IPA (macOS)
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.9
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run unit tests (Jalali calendar)
+        run: flutter test test/jalali_test.dart
+
+      - name: Build iOS app (unsigned)
+        run: flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: *//;s/+.*//')
+          IPA="nobatyar-${VERSION}-ios-unsigned.ipa"
+          mkdir -p build/iosipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/iosipa/Payload/
+          cd build/iosipa
+          zip -qry "$IPA" Payload
+          echo "IPA_NAME=$IPA" >> "$GITHUB_ENV"
+          echo "IPA_PATH=$PWD/$IPA" >> "$GITHUB_ENV"
+          ls -la "$IPA"
+
+      - name: Upload IPA as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobatyar-ios-unsigned
+          path: ${{ env.IPA_PATH }}
+          retention-days: 30
+
+      - name: Determine release tag
+        run: |
+          TAG="${{ github.event.inputs.release_tag || github.ref_name }}"
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Attach IPA to GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" > /dev/null 2>&1; then
+            echo "Release $RELEASE_TAG does not exist — creating it."
+            gh release create "$RELEASE_TAG" --generate-notes --title "$RELEASE_TAG"
+          fi
+          gh release upload "$RELEASE_TAG" "$IPA_PATH" --clobber
+          echo "Uploaded $IPA_NAME to release $RELEASE_TAG"
