@@ -1,5 +1,7 @@
 # نوبت‌یار — اپلیکیشن مدیریت نوبت برای کسب‌وکارهای محلی
 
+[![Build Android](https://github.com/Pourya-Rezaei/nobatyar/actions/workflows/build-android.yml/badge.svg)](https://github.com/Pourya-Rezaei/nobatyar/actions/workflows/build-android.yml)
+
 اپلیکیشن اندروید ساخته‌شده با **Flutter** برای مدیریت نوبت‌های مشتریان در کسب‌وکارهای محلی مانند **کلینیک زیبایی، آرایشگاه و کلینیک دندان‌پزشکی**. همه داده‌ها به‌صورت محلی روی گوشی ذخیره می‌شود و به هیچ سرور یا اینترنتی نیاز نیست.
 
 ## امکانات
@@ -33,6 +35,15 @@
 | گزارش‌ها و نمودار | تم روشن |
 |:---:|:---:|
 | ![گزارش‌ها](screenshots/nobatyar-screenshot-stats.png) | ![تم روشن](screenshots/nobatyar-screenshot-light.png) |
+
+## بیلد و انتشار خودکار (CI)
+
+این ریپو روی **GitHub Actions** به‌صورت خودکار بیلد می‌شود:
+
+- **هر push به `main`** → اجرای `flutter analyze` و کل تست‌ها + ساخت APK امضاشده (فقط برای تغییرات کد)
+- **هر tag با فرمت `v*`** → ساخت APK امضاشده اندروید و IPA بدون امضای iOS و افزودن خودکار به Release
+- کلید امضا در **GitHub Secrets** نگه‌داری می‌شود (keystore هرگز وارد ریپو نمی‌شود) و همه بیلدها با همان کلید قبلی امضا می‌شوند — یعنی به‌روزرسانی روی نسخه‌های قبلی بدون حذف نصب می‌شود
+- برای ساخت دستی: تب **Actions → Build Android → Run workflow**
 
 ## ساختار پروژه
 
