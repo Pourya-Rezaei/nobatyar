@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../app_data.dart';
+import '../app_theme.dart';
 import '../jalali.dart';
 import '../models.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/appointment_form.dart';
+import 'stats_screen.dart';
 
 /// فهرست همه نوبت‌ها با جستجو و فیلتر
 class AppointmentsScreen extends StatefulWidget {
@@ -45,8 +47,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
     final app = widget.data;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('همه نوبت‌ها')),
+      appBar: AppBar(
+        title: const Text('همه نوبت‌ها'),
+        actions: [
+          IconButton(
+            tooltip: 'آمار و نمودارها',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StatsScreen(data: app),
+              ),
+            ),
+            icon: const Icon(Icons.insights_outlined),
+          ),
+          const SizedBox(width: 6),
+        ],
+      ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_appts',
         onPressed: () => showAppointmentSheet(context, app),
         icon: const Icon(Icons.add),
         label: const Text('نوبت جدید'),
@@ -145,17 +162,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
 
   Widget _filterChip(ApptStatus? status, String label, int count) {
     final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
     final selected = _filter == status;
-    final color = status?.color ?? theme.colorScheme.primary;
+    final color = status == null
+        ? theme.colorScheme.primary
+        : statusColor(theme.brightness, status);
     return GestureDetector(
       onTap: () => setState(() => _filter = status),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
-          color: selected ? color.withValues(alpha: 0.16) : theme.colorScheme.surface,
+          color: selected
+              ? color.withValues(alpha: 0.16)
+              : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: selected ? color : Colors.white.withValues(alpha: 0.07),
+            color: selected ? color : pal.hairline,
             width: selected ? 1.4 : 1,
           ),
         ),

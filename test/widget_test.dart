@@ -10,8 +10,7 @@ import 'package:nobatyar/main.dart';
 import 'package:nobatyar/models.dart';
 import 'package:nobatyar/storage.dart';
 
-/// بارگذاری فونت واقعی وزیرمتن برای رندر درست متن فارسی در تست
-/// + فونت آیکون‌های متریال (بدون آن، آیکون‌ها به‌صورت مربع توخالی رندر می‌شوند)
+/// بارگذاری فونت واقعی وزیرمتن و آیکون‌های متریال برای رندر درست در تست
 Future<void> _loadFonts() async {
   const weights = ['Regular', 'Medium', 'SemiBold', 'Bold'];
   for (final w in weights) {
@@ -30,12 +29,27 @@ Future<void> _loadFonts() async {
   await iconLoader.load();
 }
 
-AppData _demoData() {
+AppData _demoData({AppThemeMode themeMode = AppThemeMode.dark}) {
   final today = todayJalali();
   final store = MemoryStore(
     settings: BizSettings(
       name: 'کلینیک زیبایی رز',
       type: BusinessType.beautyClinic,
+      themeMode: themeMode,
+      services: [
+        const Service(name: 'پاکسازی پوست', price: 450000),
+        const Service(name: 'لیزر موهای زائد', price: 800000),
+        const Service(name: 'میکاپ', price: 2500000),
+        const Service(name: 'تزریق بوتاکس', price: 3500000),
+      ],
+      blocks: [
+        TimeBlock(
+          id: 'blk1',
+          weekDay: 4, // پنجشنبه‌ها استراحت ناهار
+          start: 13 * 60,
+          end: 14 * 60,
+        ),
+      ],
     ),
     seed: [
       Appt(
@@ -46,6 +60,7 @@ AppData _demoData() {
         dateKey: today.dateKey,
         time: 9 * 60 + 30,
         status: ApptStatus.confirmed,
+        price: 450000,
         createdAt: 1,
       ),
       Appt(
@@ -55,6 +70,7 @@ AppData _demoData() {
         dateKey: today.dateKey,
         time: 11 * 60,
         status: ApptStatus.done,
+        price: 800000,
         note: 'جلسه دوم از شش جلسه',
         createdAt: 2,
       ),
@@ -66,25 +82,37 @@ AppData _demoData() {
         dateKey: today.dateKey,
         time: 16 * 60,
         status: ApptStatus.pending,
+        price: 2500000,
         createdAt: 3,
       ),
       Appt(
         id: 'a4',
+        name: 'سارا محمدی',
+        phone: '09121234567',
+        service: 'پاکسازی پوست',
+        dateKey: today.addDays(-14).dateKey,
+        time: 10 * 60,
+        status: ApptStatus.done,
+        price: 450000,
+        createdAt: 4,
+      ),
+      Appt(
+        id: 'a5',
         name: 'الهام رضایی',
         service: 'تزریق بوتاکس',
         dateKey: today.addDays(1).dateKey,
         time: 10 * 60,
         status: ApptStatus.pending,
-        createdAt: 4,
+        createdAt: 5,
       ),
       Appt(
-        id: 'a5',
+        id: 'a6',
         name: 'نیلوفر جعفری',
         service: 'پاکسازی پوست',
         dateKey: today.addDays(-2).dateKey,
         time: 17 * 60,
         status: ApptStatus.canceled,
-        createdAt: 5,
+        createdAt: 6,
       ),
     ],
   );
@@ -101,11 +129,19 @@ Future<void> _pumpApp(WidgetTester tester, AppData data) async {
 void main() {
   setUpAll(_loadFonts);
 
-  testWidgets('صفحه امروز به‌درستی رندر می‌شود', (tester) async {
+  testWidgets('صفحه امروز (تم تیره) به‌درستی رندر می‌شود', (tester) async {
     await _pumpApp(tester, _demoData());
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/home.png'),
+    );
+  });
+
+  testWidgets('صفحه امروز (تم روشن) به‌درستی رندر می‌شود', (tester) async {
+    await _pumpApp(tester, _demoData(themeMode: AppThemeMode.light));
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/home_light.png'),
     );
   });
 
@@ -119,6 +155,16 @@ void main() {
     );
   });
 
+  testWidgets('صفحه مشتریان به‌درستی رندر می‌شود', (tester) async {
+    await _pumpApp(tester, _demoData());
+    await tester.tap(find.text('مشتریان'));
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/customers.png'),
+    );
+  });
+
   testWidgets('صفحه تنظیمات به‌درستی رندر می‌شود', (tester) async {
     await _pumpApp(tester, _demoData());
     await tester.tap(find.text('تنظیمات'));
@@ -126,6 +172,18 @@ void main() {
     await expectLater(
       find.byType(MaterialApp),
       matchesGoldenFile('goldens/settings.png'),
+    );
+  });
+
+  testWidgets('صفحه آمار به‌درستی رندر می‌شود', (tester) async {
+    await _pumpApp(tester, _demoData());
+    await tester.tap(find.text('نوبت‌ها'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('آمار و نمودارها'));
+    await tester.pumpAndSettle();
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('goldens/stats.png'),
     );
   });
 

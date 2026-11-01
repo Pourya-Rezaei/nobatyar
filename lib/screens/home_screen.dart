@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../app_data.dart';
+import '../app_theme.dart';
 import '../jalali.dart';
 import '../models.dart';
 import '../widgets/appointment_card.dart';
@@ -23,6 +24,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final app = widget.data;
     final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
 
     return Scaffold(
       appBar: AppBar(
@@ -55,23 +57,24 @@ class _HomeScreenState extends State<HomeScreen> {
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
+                gradient: LinearGradient(
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
-                  colors: [Color(0xFF7C5CFF), Color(0xFFA78BFA)],
+                  colors: [pal.primaryDeep, pal.primary],
                 ),
                 borderRadius: BorderRadius.circular(14),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.event_available,
                 size: 22,
-                color: Color(0xFF171225),
+                color: pal.onPrimary,
               ),
             ),
           ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'fab_home',
         onPressed: () =>
             showAppointmentSheet(context, app, initialDate: _selected),
         icon: const Icon(Icons.add),
@@ -81,10 +84,7 @@ class _HomeScreenState extends State<HomeScreen> {
         listenable: app,
         builder: (context, _) {
           final today = todayJalali();
-          final dayAppts = app.appts
-              .where((a) => a.dateKey == _selected.dateKey)
-              .toList()
-            ..sort((a, b) => a.time.compareTo(b.time));
+          final dayAppts = app.apptsOfDay(_selected.dateKey);
           final done = dayAppts
               .where((a) => a.status == ApptStatus.done)
               .length;
@@ -92,6 +92,8 @@ class _HomeScreenState extends State<HomeScreen> {
               .where((a) => a.status == ApptStatus.canceled)
               .length;
           final remaining = dayAppts.length - done - canceled;
+          final income = app.dayIncome(_selected.dateKey);
+          final expected = app.dayExpected(_selected.dateKey);
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
@@ -108,9 +110,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 done: done,
                 canceled: canceled,
               ),
+              if (income > 0 || expected > 0) ...[
+                const SizedBox(height: 10),
+                _IncomeCard(income: income, expected: expected),
+              ],
               if (dayAppts.isEmpty)
                 _EmptyDay(
                   hasBusinessName: app.settings.name.trim().isNotEmpty,
+                  isDayOff: app.settings.isDayOff(_selected),
                 )
               else
                 ...dayAppts.map(
@@ -141,6 +148,7 @@ class _DateSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
     final primary = theme.colorScheme.primary;
     final isToday = selected == today;
 
@@ -149,7 +157,7 @@ class _DateSelector extends StatelessWidget {
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: pal.hairline),
       ),
       child: Row(
         children: [
@@ -220,6 +228,7 @@ class _StatsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final brightness = Theme.of(context).brightness;
     return Row(
       children: [
         Expanded(
@@ -234,7 +243,7 @@ class _StatsRow extends StatelessWidget {
         Expanded(
           child: _StatCard(
             icon: Icons.pending_actions,
-            color: const Color(0xFFFBBF24),
+            color: statusColor(brightness, ApptStatus.pending),
             label: 'باقی‌مانده',
             value: remaining,
           ),
@@ -243,7 +252,7 @@ class _StatsRow extends StatelessWidget {
         Expanded(
           child: _StatCard(
             icon: Icons.task_alt,
-            color: const Color(0xFF34D399),
+            color: statusColor(brightness, ApptStatus.done),
             label: 'انجام‌شده',
             value: done,
           ),
@@ -269,12 +278,13 @@ class _StatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: pal.hairline),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -306,39 +316,126 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _EmptyDay extends StatelessWidget {
-  final bool hasBusinessName;
+/// کارت درآمد روز
+class _IncomeCard extends StatelessWidget {
+  final int income;
+  final int expected;
 
-  const _EmptyDay({required this.hasBusinessName});
+  const _IncomeCard({required this.income, required this.expected});
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
+    final brightness = theme.brightness;
+    final green = statusColor(brightness, ApptStatus.done);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: pal.hairline),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: green.withValues(alpha: 0.13),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(Icons.payments_outlined, size: 18, color: green),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'درآمد امروز',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${faMoney(income)} تومان',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: green,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (expected > 0)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  'در انتظار وصول',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${faMoney(expected)} ت',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: pal.primary,
+                  ),
+                ),
+              ],
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyDay extends StatelessWidget {
+  final bool hasBusinessName;
+  final bool isDayOff;
+
+  const _EmptyDay({required this.hasBusinessName, required this.isDayOff});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final pal = AppPalette.of(context);
     return Container(
       margin: const EdgeInsets.only(top: 24),
       padding: const EdgeInsets.symmetric(vertical: 48, horizontal: 24),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface.withValues(alpha: 0.5),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: pal.hairline),
       ),
       child: Column(
         children: [
           Icon(
-            Icons.event_available,
+            isDayOff ? Icons.event_busy : Icons.event_available,
             size: 64,
             color: theme.colorScheme.primary.withValues(alpha: 0.45),
           ),
           const SizedBox(height: 16),
-          const Text(
-            'نوبتی برای این روز ثبت نشده',
-            style: TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
+          Text(
+            isDayOff ? 'این روز تعطیل است' : 'نوبتی برای این روز ثبت نشده',
+            style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 8),
           Text(
-            hasBusinessName
-                ? 'با دکمه «نوبت جدید» برنامه این روز را بچین'
-                : 'ابتدا نام کسب‌وکارت را در تنظیمات وارد کن',
+            isDayOff
+                ? 'بازه‌های غیرفعال را می‌توانی در تنظیمات مدیریت کنی'
+                : hasBusinessName
+                    ? 'با دکمه «نوبت جدید» برنامه این روز را بچین'
+                    : 'ابتدا نام کسب‌وکارت را در تنظیمات وارد کن',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,

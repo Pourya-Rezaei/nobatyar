@@ -52,6 +52,18 @@ String faTime(int minutes) {
   return faDigits('$h:$m');
 }
 
+/// نمایش مبلغ با جداکننده هزارگان و ارقام فارسی: 1200000 → «۱,۲۰۰,۰۰۰»
+String faMoney(num v) {
+  final s = v.toInt().abs().toString();
+  final sb = StringBuffer();
+  for (var i = 0; i < s.length; i++) {
+    sb.write(s[i]);
+    final fromEnd = s.length - i;
+    if (fromEnd > 1 && fromEnd % 3 == 1) sb.write(',');
+  }
+  return faDigits(sb.toString());
+}
+
 /// یک تاریخ شمسی
 class Jalali implements Comparable<Jalali> {
   final int year;

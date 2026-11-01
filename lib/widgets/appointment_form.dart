@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../app_data.dart';
+import '../app_theme.dart';
 import '../jalali.dart';
 import '../models.dart';
 import 'jalali_picker.dart';
@@ -13,6 +15,8 @@ Future<void> showAppointmentSheet(
   AppData app, {
   Appt? existing,
   Jalali? initialDate,
+  String? initialName,
+  String? initialPhone,
 }) {
   return showModalBottomSheet(
     context: context,
@@ -24,6 +28,8 @@ Future<void> showAppointmentSheet(
         app: app,
         existing: existing,
         initialDate: initialDate ?? todayJalali(),
+        initialName: initialName,
+        initialPhone: initialPhone,
       ),
     ),
   );
@@ -33,11 +39,15 @@ class _AppointmentSheet extends StatefulWidget {
   final AppData app;
   final Appt? existing;
   final Jalali initialDate;
+  final String? initialName;
+  final String? initialPhone;
 
   const _AppointmentSheet({
     required this.app,
     required this.existing,
     required this.initialDate,
+    this.initialName,
+    this.initialPhone,
   });
 
   @override
@@ -47,14 +57,19 @@ class _AppointmentSheet extends StatefulWidget {
 class _AppointmentSheetState extends State<_AppointmentSheet> {
   final _formKey = GlobalKey<FormState>();
 
-  late final TextEditingController _name =
-      TextEditingController(text: widget.existing?.name ?? '');
-  late final TextEditingController _phone =
-      TextEditingController(text: widget.existing?.phone ?? '');
+  late final TextEditingController _name = TextEditingController(
+      text: widget.existing?.name ?? widget.initialName ?? '');
+  late final TextEditingController _phone = TextEditingController(
+      text: widget.existing?.phone ?? widget.initialPhone ?? '');
   late final TextEditingController _note =
       TextEditingController(text: widget.existing?.note ?? '');
   late final TextEditingController _customService = TextEditingController(
     text: _initialCustomService,
+  );
+  late final TextEditingController _price = TextEditingController(
+    text: widget.existing?.price != null
+        ? faNum(widget.existing!.price!)
+        : '',
   );
 
   late String? _service = _initialService;
@@ -67,7 +82,7 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
   String? get _initialService {
     final e = widget.existing;
     if (e == null || e.service.isEmpty) return null;
-    return widget.app.settings.type.services.contains(e.service)
+    return widget.app.settings.services.any((s) => s.name == e.service)
         ? e.service
         : null;
   }
@@ -75,25 +90,19 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
   bool get _initialIsCustom {
     final e = widget.existing;
     if (e == null || e.service.isEmpty) return false;
-    return !widget.app.settings.type.services.contains(e.service);
+    return !widget.app.settings.services.any((s) => s.name == e.service);
   }
 
   String get _initialCustomService {
     final e = widget.existing;
     if (e == null || e.service.isEmpty) return '';
-    return widget.app.settings.type.services.contains(e.service) ? '' : e.service;
+    return widget.app.settings.services.any((s) => s.name == e.service)
+        ? ''
+        : e.service;
   }
 
-  /// بازه‌های زمانی آزاد از تنظیمات کسب‌وکار
-  List<int> get _slots {
-    final s = widget.app.settings;
-    final out = <int>[];
-    if (s.slot <= 0 || s.dayEnd <= s.dayStart) return out;
-    for (var t = s.dayStart; t + s.slot <= s.dayEnd; t += s.slot) {
-      out.add(t);
-    }
-    return out;
-  }
+  /// بازه‌های زمانی آزاد برای تاریخ انتخابی — ساعات کاری منهای تعطیلی‌ها
+  List<int> get _slots => widget.app.slotsFor(_date);
 
   /// آیا این بازه برای این تاریخ قبلاً رزرو شده؟
   bool _isBooked(int t) => widget.app.appts.any(
@@ -104,12 +113,22 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
             a.id != widget.existing?.id,
       );
 
+  /// قیمت پیش‌فرض خدمت انتخاب‌شده (اگر تعریف شده باشد)
+  int? get _servicePrice {
+    if (_isCustom || _service == null) return null;
+    for (final s in widget.app.settings.services) {
+      if (s.name == _service) return s.price;
+    }
+    return null;
+  }
+
   @override
   void dispose() {
     _name.dispose();
     _phone.dispose();
     _note.dispose();
     _customService.dispose();
+    _price.dispose();
     super.dispose();
   }
 
@@ -118,9 +137,36 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
     if (picked == null || !mounted) return;
     setState(() {
       _date = picked;
-      // اگر ساعت انتخاب‌شده در تاریخ جدید پر شده باشد، پاک می‌شود
-      if (_time != null && _isBooked(_time!)) _time = null;
+      // اگر ساعت انتخاب‌شده در تاریخ جدید پر یا تعطیل شده باشد، پاک می‌شود
+      if (_time != null && (_isBooked(_time!) || _isBlockedSlot(_time!))) {
+        _time = null;
+      }
     });
+  }
+
+  bool _isBlockedSlot(int t) {
+    final s = widget.app.settings;
+    return s.isBlocked(_date, t, t + s.slot);
+  }
+
+  void _onServiceChanged(String? v) {
+    setState(() {
+      if (v == _customTag) {
+        _isCustom = true;
+      } else {
+        _isCustom = false;
+        _service = v;
+        // قیمت خدمت را پیش‌فرض کن (اگر کاربر چیزی دستی ننوشته باشد)
+        final p = _servicePrice;
+        _price.text = p == null ? '' : faNum(p);
+      }
+    });
+  }
+
+  int? _parsePrice() {
+    final t = enDigits(_price.text.trim()).replaceAll(',', '');
+    if (t.isEmpty) return null;
+    return int.tryParse(t);
   }
 
   void _save() {
@@ -147,6 +193,7 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
       time: _time!,
       note: _note.text.trim(),
       status: _status,
+      price: _parsePrice(),
       createdAt: e?.createdAt ?? DateTime.now().millisecondsSinceEpoch,
     );
 
@@ -267,22 +314,25 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
               initialValue: _isCustom ? _customTag : _service,
               hint: const Text('انتخاب کنید'),
               items: [
-                ...s.type.services.map(
-                  (sv) => DropdownMenuItem(value: sv, child: Text(sv)),
+                ...s.services.map(
+                  (sv) => DropdownMenuItem(
+                    value: sv.name,
+                    child: Text(
+                      sv.price == null
+                          ? sv.name
+                          : '${sv.name} — ${faMoney(sv.price!)} تومان',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
                 ),
                 const DropdownMenuItem(
                   value: _customTag,
                   child: Text('سایر (دلخواه)'),
                 ),
               ],
-              onChanged: (v) => setState(() {
-                if (v == _customTag) {
-                  _isCustom = true;
-                } else {
-                  _isCustom = false;
-                  _service = v;
-                }
-              }),
+              onChanged: _onServiceChanged,
             ),
             if (_isCustom) ...[
               const SizedBox(height: 8),
@@ -297,6 +347,18 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
             ],
             const SizedBox(height: 14),
 
+            _FieldLabel('مبلغ نوبت (تومان)'),
+            TextFormField(
+              controller: _price,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9۰-۹,]'))],
+              decoration: const InputDecoration(
+                hintText: 'اختیاری — مثلاً ۴۵۰,۰۰۰',
+                suffixText: 'تومان',
+              ),
+            ),
+            const SizedBox(height: 14),
+
             _FieldLabel('تاریخ'),
             const SizedBox(height: 6),
             _DateField(date: _date, onTap: _pickDate),
@@ -306,7 +368,9 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
             const SizedBox(height: 8),
             if (slots.isEmpty)
               Text(
-                'ابتدا ساعات کاری را در تنظیمات مشخص کنید',
+                s.isDayOff(_date)
+                    ? 'این روز تعطیل است (بازه غیرفعال در تنظیمات)'
+                    : 'ابتدا ساعات کاری را در تنظیمات مشخص کنید',
                 style: TextStyle(
                   fontSize: 12.5,
                   color: theme.colorScheme.onSurfaceVariant,
@@ -377,8 +441,10 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
 
   Widget _slotChip(int t, bool selected, bool booked) {
     final theme = Theme.of(context);
+    final blocked = !booked && _isBlockedSlot(t);
+    final disabled = booked || blocked;
     return InkWell(
-      onTap: booked ? null : () => setState(() => _time = t),
+      onTap: disabled ? null : () => setState(() => _time = t),
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
@@ -389,19 +455,19 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
           borderRadius: BorderRadius.circular(10),
           border: selected
               ? null
-              : Border.all(color: Colors.white.withValues(alpha: 0.07)),
+              : Border.all(color: AppPalette.of(context).hairline),
         ),
         child: Text(
           faTime(t),
           style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w700,
-            color: booked
+            color: disabled
                 ? theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4)
                 : selected
                     ? theme.colorScheme.onPrimary
                     : theme.colorScheme.onSurface,
-            decoration: booked ? TextDecoration.lineThrough : null,
+            decoration: disabled ? TextDecoration.lineThrough : null,
           ),
         ),
       ),
@@ -411,7 +477,10 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
   Widget _statusChip(ApptStatus st) {
     final theme = Theme.of(context);
     final selected = _status == st;
-    final c = st.color;
+    final c = statusColor(theme.brightness, st);
+    final onSel = theme.brightness == Brightness.dark
+        ? const Color(0xFF171225)
+        : Colors.white;
     return InkWell(
       onTap: () => setState(() => _status = st),
       borderRadius: BorderRadius.circular(999),
@@ -434,7 +503,7 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
               width: 8,
               height: 8,
               decoration: BoxDecoration(
-                color: selected ? const Color(0xFF171225) : c,
+                color: selected ? onSel : c,
                 shape: BoxShape.circle,
               ),
             ),
@@ -444,7 +513,7 @@ class _AppointmentSheetState extends State<_AppointmentSheet> {
               style: TextStyle(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
-                color: selected ? const Color(0xFF171225) : c,
+                color: selected ? onSel : c,
               ),
             ),
           ],
@@ -489,7 +558,7 @@ class _DateField extends StatelessWidget {
         decoration: BoxDecoration(
           color: theme.colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.07)),
+          border: Border.all(color: AppPalette.of(context).hairline),
         ),
         child: Row(
           children: [
