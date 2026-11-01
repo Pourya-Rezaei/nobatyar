@@ -11,6 +11,7 @@ import 'package:nobatyar/models.dart';
 import 'package:nobatyar/storage.dart';
 
 /// بارگذاری فونت واقعی وزیرمتن برای رندر درست متن فارسی در تست
+/// + فونت آیکون‌های متریال (بدون آن، آیکون‌ها به‌صورت مربع توخالی رندر می‌شوند)
 Future<void> _loadFonts() async {
   const weights = ['Regular', 'Medium', 'SemiBold', 'Bold'];
   for (final w in weights) {
@@ -19,6 +20,14 @@ Future<void> _loadFonts() async {
       ..addFont(Future.value(ByteData.view(bytes.buffer)));
     await loader.load();
   }
+
+  final iconFont = File('test/fonts/MaterialIcons-Regular.otf');
+  assert(iconFont.existsSync(),
+      'test/fonts/MaterialIcons-Regular.otf not found — icons would render as tofu squares');
+  final iconBytes = iconFont.readAsBytesSync();
+  final iconLoader = FontLoader('MaterialIcons')
+    ..addFont(Future.value(ByteData.view(iconBytes.buffer)));
+  await iconLoader.load();
 }
 
 AppData _demoData() {
