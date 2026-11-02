@@ -1,0 +1,72 @@
+name: Export signing backup
+
+# خروجی رمزنگاری‌شدهٔ کلید امضای اندروید برای نگهداری آفلاین توسط مالک ریپو.
+# - فقط با اجرای دستی (workflow_dispatch) فعال می‌شود.
+# - کلیدها فقط از Secrets خوانده و با AES-256-CBC (PBKDF2، ۶۰۰هزار تکرار)
+#   با passphrase موجود در Secret جداگانه قفل می‌شوند.
+# - Artifact فقط ۱ روز می‌ماند؛ پس از دانلود، خودِ run حذف می‌شود تا
+#   هیچ نسخه‌ای روی GitHub باقی نماند.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export-signing-backup:
+    name: Export encrypted signing backup
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+
+    steps:
+      - name: Pack and encrypt signing material
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          BACKUP_PASSPHRASE: ${{ secrets.ANDROID_KEYSTORE_BACKUP_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          mkdir pack
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > pack/nobatyar-release.keystore
+          cat > pack/key.properties <<EOF
+          storeFile=nobatyar-release.keystore
+          storePassword=${STORE_PASSWORD}
+          keyPassword=${KEY_PASSWORD}
+          keyAlias=${KEY_ALIAS}
+          EOF
+          cat > pack/RESTORE-README.txt <<'EOF'
+          NobatYar — Android signing backup
+          =================================
+
+          This archive contains the release keystore and its key.properties.
+          Restore instructions (Linux/macOS/WSL, openssl required):
+
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 \
+              -in nobatyar-signing-backup.enc \
+              -out signing-backup.tar.gz
+            tar -xzf signing-backup.tar.gz
+
+          Then copy both files to:  android/app/   (in the project root)
+          — nobatyar-release.keystore
+          — key.properties
+          (both paths are in .gitignore; never commit them)
+
+          The passphrase is stored separately in your password manager.
+          WITHOUT THE PASSPHRASE THIS FILE IS UNRECOVERABLE.
+          EOF
+          tar -czf signing-backup.tar.gz -C pack .
+          openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt \
+            -in signing-backup.tar.gz -out nobatyar-signing-backup.enc \
+            -pass pass:"$BACKUP_PASSPHRASE"
+          rm -rf pack signing-backup.tar.gz
+          # فقط اثر انگشت فایل چاپ می‌شود؛ خود کلید هرگز وارد لاگ نمی‌شود
+          sha256sum nobatyar-signing-backup.enc
+
+      - name: Upload encrypted backup (1-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: nobatyar-signing-backup
+          path: nobatyar-signing-backup.enc
+          retention-days: 1
+          if-no-files-found: error
