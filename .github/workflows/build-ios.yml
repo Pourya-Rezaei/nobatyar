@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to attach the IPA to'
+        description: 'برای پیوست IPA به یک Release مشخص، تگ را وارد کنید (خالی = فقط artifact)'
         required: false
-        default: 'v1.0.0'
+        default: ''
   push:
     tags:
       - 'v*'
@@ -14,7 +14,10 @@ on:
 jobs:
   build-ios:
     name: Build unsigned IPA (macOS)
-    runs-on: macos-latest
+    # پین‌شده به macos-26: همان ایمیجی که macos-latest فعلاً به آن اشاره می‌کند و
+    # IPA موفق v1.2.0 روی آن ساخته شده. با پین، مهاجرت خودکار latest به macOS
+    # بعدی (و تغییر Xcode) دیگر بی‌سروصدا رخ نمی‌دهد.
+    runs-on: macos-26
     permissions:
       contents: write
 
@@ -61,11 +64,19 @@ jobs:
           retention-days: 30
 
       - name: Determine release tag
+        # فقط وقتی تگ صریح داده شده یا اجرا روی تگ واقعی باشد به Release آپلود
+        # می‌شود؛ dispatch دستی بدون ورودی فقط artifact می‌سازد و دیگر
+        # اشتباهاً IPA نسخه جدید را به Release قدیمی نمی‌چسباند.
         run: |
-          TAG="${{ github.event.inputs.release_tag || github.ref_name }}"
+          TAG="${{ github.event.inputs.release_tag }}"
+          if [ -z "$TAG" ] && [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
           echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Release tag resolved to: '$TAG'"
 
       - name: Attach IPA to GitHub release
+        if: env.RELEASE_TAG != ''
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

@@ -18,12 +18,17 @@ on:
       - 'android/**'
       - 'test/**'
       - 'pubspec.yaml'
+      - 'pubspec.lock'
+      - '.github/workflows/build-android.yml'
   workflow_dispatch:
 
 jobs:
   build-android:
     name: Build signed APK (ubuntu)
-    runs-on: ubuntu-latest
+    # پین‌شده به ubuntu-24.04: تغییر خودکار ubuntu-latest قبلاً تست‌های golden را
+    # شکسته بود (شیفت آنتی‌الیاسینگ متن). با پین، پرش‌های نسخه بزرگ OS دیگر
+    # بی‌سروصدا رخ نمی‌دهند. فقط هنگام ارتقای عمدی، این مقدار را به‌روز کنید.
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
