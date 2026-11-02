@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
+import '../../core/app_info.dart';
 import '../../core/jalali.dart';
 import '../../data/app_data.dart';
 import '../../data/models.dart';
+import '../../services/auto_backup_service.dart';
 import '../../services/backup_service.dart';
 import '../../services/notification_service.dart';
+import '../../services/update_service.dart';
 import '../app_theme.dart';
 import '../widgets/jalali_picker.dart';
 
@@ -26,10 +29,119 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late final TextEditingController _nameCtrl;
 
+  /// وضعیت نمایشی بخش بکاپ خودکار — از Preferences خوانده می‌شود
+  bool _autoBackupEnabled = true;
+  bool _autoBackupLoaded = false;
+
   @override
   void initState() {
     super.initState();
     _nameCtrl = TextEditingController(text: widget.data.settings.name);
+    _loadAutoBackupState();
+  }
+
+  Future<void> _loadAutoBackupState() async {
+    final enabled = await AutoBackupService.isEnabled();
+    if (!mounted) return;
+    setState(() {
+      _autoBackupEnabled = enabled;
+      _autoBackupLoaded = true;
+    });
+  }
+
+  Future<void> _toggleAutoBackup(bool v) async {
+    await AutoBackupService.setEnabled(v);
+    if (!mounted) return;
+    setState(() => _autoBackupEnabled = v);
+  }
+
+  /// تنظیم رمز بکاپ خودکار (خالی = بدون رمز)
+  Future<void> _editAutoBackupPassword() async {
+    // قبل از هر await، تا مشکل async-gap پیش نیاید
+    final messenger = ScaffoldMessenger.of(context);
+    final current = await AutoBackupService.storedPassword();
+    final ctrl = TextEditingController(text: current);
+    if (!mounted) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('رمز بکاپ خودکار'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: ctrl,
+              obscureText: true,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: 'خالی = بکاپ خودکار بدون رمز',
+                prefixIcon: Icon(Icons.password_outlined, size: 21),
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              current.isEmpty
+                  ? 'با تعیین رمز، فایل‌های بکاپ خودکار با AES-256 قفل می‌شوند. '
+                      'همین رمز موقع بازگردانی لازم است — فراموشش نکن!'
+                  : 'الان رمز تعیین شده. برای حذف رمز، فیلد را خالی بگذار.',
+              style: TextStyle(
+                  fontSize: 11.5,
+                  color: Theme.of(ctx).colorScheme.onSurfaceVariant),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('انصراف'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('ذخیره'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await AutoBackupService.setPassword(ctrl.text.trim());
+    messenger.showSnackBar(SnackBar(
+      content: Text(ctrl.text.trim().isEmpty
+          ? 'رمز بکاپ خودکار حذف شد'
+          : 'رمز بکاپ خودکار ذخیره شد'),
+    ));
+    if (mounted) setState(() {});
+  }
+
+  /// بررسی دستی به‌روزرسانی
+  Future<void> _checkUpdate() async {
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('در حال بررسی به‌روزرسانی…')),
+    );
+    final info = await UpdateService.checkManually();
+    if (!mounted) return;
+    if (info == null) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('بررسی ممکن نشد — اینترنت را چک کن')),
+      );
+      return;
+    }
+    if (UpdateService.isNewer(info.latestVersion, appVersion)) {
+      messenger.hideCurrentSnackBar();
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+              'نسخهٔ جدید ${faDigits(info.latestVersion)} موجوده — بنر دانلود در صفحهٔ خانه'),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } else {
+      messenger.showSnackBar(
+        SnackBar(
+            content: Text(
+                'به‌روز هستی — نسخهٔ ${faDigits(appVersion)} آخرین نسخه است')),
+      );
+    }
   }
 
   @override
@@ -503,6 +615,86 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: theme.colorScheme.onSurfaceVariant
                           .withValues(alpha: 0.08),
                     ),
+                    // -- بکاپ خودکار هفتگی --------------------------------
+                    SwitchListTile(
+                      secondary: Icon(
+                        Icons.autorenew,
+                        color: statusColor(
+                            theme.brightness, ApptStatus.confirmed),
+                      ),
+                      title: const Text(
+                        'بکاپ خودکار هفتگی',
+                        style:
+                            TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'هر ۷ روز، فایل پشتیبان روی همین گوشی ساخته می‌شود و پیشنهاد ارسالش به جای امن نمایش داده می‌شود',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      value: _autoBackupLoaded && _autoBackupEnabled,
+                      onChanged: _toggleAutoBackup,
+                    ),
+                    Divider(
+                      height: 1,
+                      color: theme.colorScheme.onSurfaceVariant
+                          .withValues(alpha: 0.08),
+                    ),
+                    ListTile(
+                      leading: Icon(
+                        Icons.password_outlined,
+                        color: statusColor(
+                            theme.brightness, ApptStatus.pending),
+                      ),
+                      title: const Text(
+                        'رمز بکاپ خودکار',
+                        style:
+                            TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: FutureBuilder<String>(
+                        future: AutoBackupService.storedPassword(),
+                        builder: (context, snap) => Text(
+                          (snap.data ?? '').isEmpty
+                              ? 'بدون رمز — فایل‌های بکاپ خودکار ساده ذخیره می‌شوند'
+                              : 'رمز تعیین شده — فایل‌ها با AES-256 قفل می‌شوند',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                      onTap: _editAutoBackupPassword,
+                    ),
+                    Divider(
+                      height: 1,
+                      color: theme.colorScheme.onSurfaceVariant
+                          .withValues(alpha: 0.08),
+                    ),
+                    // -- بررسی به‌روزرسانی --------------------------------
+                    ListTile(
+                      leading: Icon(
+                        Icons.system_update_alt,
+                        color: statusColor(
+                            theme.brightness, ApptStatus.done),
+                      ),
+                      title: const Text(
+                        'بررسی به‌روزرسانی',
+                        style:
+                            TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                      ),
+                      subtitle: Text(
+                        'نسخهٔ جدید را از گیت‌هاب بررسی کن',
+                        style: TextStyle(
+                            fontSize: 11.5,
+                            color: theme.colorScheme.onSurfaceVariant),
+                      ),
+                      onTap: _checkUpdate,
+                    ),
+                    Divider(
+                      height: 1,
+                      color: theme.colorScheme.onSurfaceVariant
+                          .withValues(alpha: 0.08),
+                    ),
                     ListTile(
                       leading: const Icon(
                         Icons.delete_sweep_outlined,
@@ -526,7 +718,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   children: [
                     Text(
-                      'نوبت‌یار نسخه ۱.۲.۰',
+                      'نوبت‌یار نسخه ${faDigits(appVersion)} ($buildNumber)',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: theme.colorScheme.onSurfaceVariant,

@@ -1,6 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- تنها مجوز اپ: نمایش یادآوری نوبت‌ها (از اندروید ۱۳ به بالا نیاز به تأیید کاربر دارد) -->
+    <!-- یادآوری نوبت‌ها (از اندروید ۱۳ به بالا نیاز به تأیید کاربر دارد) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- تنها برای بررسی به‌روزرسانی از API عمومی گیت‌هاب (حداکثر هر ۲۴ ساعت یک‌بار؛
+         هیچ داده‌ای ارسال نمی‌شود) و باز کردن صفحهٔ دانلود -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="نوبت‌یار"
         android:name="${applicationName}"

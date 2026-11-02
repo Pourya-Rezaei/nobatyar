@@ -6,7 +6,10 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'data/app_data.dart';
 import 'data/models.dart';
 import 'data/storage.dart';
+import 'services/auto_backup_service.dart';
+import 'services/crash_log_service.dart';
 import 'services/notification_service.dart';
+import 'services/update_service.dart';
 import 'ui/app_theme.dart';
 import 'ui/screens/appointments_screen.dart';
 import 'ui/screens/customers_screen.dart';
@@ -16,6 +19,9 @@ import 'ui/screens/settings_screen.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // ثبت خطاهای غیرمنتظره روی دیسک — قبل از هر چیز
+  CrashLogService.install();
+
   // فقط بارگذاری داده از دیسک قبل از نخستین فریم — سریع و سبک
   final store = SharedPrefsStore();
   await store.load();
@@ -23,12 +29,21 @@ void main() async {
 
   runApp(NobatyarApp(data: app));
 
-  // راه‌اندازی نوتیفیکیشن بعد از نخستین فریم تا شروع اپ روان بماند
-  // (ساخت پلاگین + دیالوگ مجوز کار سنگین‌تری هستند)
+  // کارهای پس از نخستین فریم تا شروع اپ روان بماند
+  // (ساخت پلاگین نوتیفیکیشن + بکاپ خودکار + بررسی به‌روزرسانی)
   unawaited(() async {
     await Future<void>.delayed(const Duration(milliseconds: 400));
     await NotificationService.instance.init();
     await NotificationService.instance.rescheduleAll(app);
+
+    // بکاپ خودکار هفتگی — بی‌صدا و مقاوم به خطا
+    unawaited(AutoBackupService.maybeRun(app));
+
+    // بررسی خطاهای اجرای قبلی + پیشنهاد ارسال گزارش
+    unawaited(CrashLogService.checkUnreadFromLastRun());
+
+    // بررسی نسخهٔ جدید — حداکثر هر ۲۴ ساعت یک‌بار، بی‌صدا
+    unawaited(UpdateService.checkOnStartup());
   }());
 }
 

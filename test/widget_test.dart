@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:nobatyar/core/jalali.dart';
 import 'package:nobatyar/data/app_data.dart';
@@ -127,7 +128,13 @@ Future<void> _pumpApp(WidgetTester tester, AppData data) async {
 }
 
 void main() {
-  setUpAll(_loadFonts);
+  setUpAll(() async {
+    await _loadFonts();
+    // ماک SharedPreferences — سرویس‌های جدید (بکاپ خودکار/آپدیت) در
+    // initState صفحه تنظیمات به پلاگین دست می‌زنند؛ بدون ماک،
+    // MissingPluginException کل تست‌ها را می‌اندازد
+    SharedPreferences.setMockInitialValues({});
+  });
 
   testWidgets('صفحه امروز (تم تیره) به‌درستی رندر می‌شود', (tester) async {
     await _pumpApp(tester, _demoData());

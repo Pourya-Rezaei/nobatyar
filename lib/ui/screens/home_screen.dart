@@ -6,6 +6,7 @@ import '../../data/models.dart';
 import '../app_theme.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/appointment_form.dart';
+import '../widgets/home_banners.dart';
 
 /// صفحه اصلی: صف نوبت‌های روز انتخابی
 class HomeScreen extends StatefulWidget {
@@ -105,9 +106,12 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           }
 
-          return ListView(
+          return CrashReportGate(
+            child: ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),
             children: [
+              const UpdateBanner(),
+              const AutoBackupBanner(),
               _DateSelector(
                 selected: _selected,
                 today: today,
@@ -137,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                 ),
             ],
+            ),
           );
         },
       ),
