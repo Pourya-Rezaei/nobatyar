@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'jalali.dart';
+import '../core/jalali.dart';
 
 /// وضعیت نوبت
 enum ApptStatus { pending, confirmed, done, canceled }
@@ -429,4 +429,33 @@ String reminderText(Appt a, BizSettings s) {
   }
   buf.write('\nمحل: $biz\nلطفاً چند دقیقه قبل از ساعت مقرر حاضر باشید.');
   return buf.toString();
+}
+
+/// پرونده مشتری: همه نوبت‌های یک نفر (گروه‌بندی بر اساس شماره تماس یا نام)
+class CustomerProfile {
+  final String key;
+  final String name;
+  final String phone;
+  final List<Appt> appts; // جدیدترین اول
+
+  const CustomerProfile({
+    required this.key,
+    required this.name,
+    required this.phone,
+    required this.appts,
+  });
+
+  int get doneCount =>
+      appts.where((a) => a.status == ApptStatus.done).length;
+
+  int get totalSpent => appts
+      .where((a) => a.status == ApptStatus.done)
+      .fold<int>(0, (sum, a) => sum + (a.price ?? 0));
+
+  Appt? get lastVisit {
+    for (final a in appts) {
+      if (a.status == ApptStatus.done) return a;
+    }
+    return null;
+  }
 }

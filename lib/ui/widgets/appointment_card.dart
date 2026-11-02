@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../app_data.dart';
+import '../../data/app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/models.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
 import 'appointment_form.dart';
 
 /// کارت نمایش یک نوبت

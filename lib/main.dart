@@ -3,28 +3,33 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-import 'app_data.dart';
-import 'app_theme.dart';
-import 'notification_service.dart';
-import 'models.dart';
-import 'screens/appointments_screen.dart';
-import 'screens/customers_screen.dart';
-import 'screens/home_screen.dart';
-import 'screens/settings_screen.dart';
-import 'storage.dart';
+import 'data/app_data.dart';
+import 'data/models.dart';
+import 'data/storage.dart';
+import 'services/notification_service.dart';
+import 'ui/app_theme.dart';
+import 'ui/screens/appointments_screen.dart';
+import 'ui/screens/customers_screen.dart';
+import 'ui/screens/home_screen.dart';
+import 'ui/screens/settings_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // فقط بارگذاری داده از دیسک قبل از نخستین فریم — سریع و سبک
   final store = SharedPrefsStore();
   await store.load();
   final app = AppData(store);
 
-  // راه‌اندازی نوتیفیکیشن و چیدمان دوباره یادآوری‌ها
-  unawaited(NotificationService.instance
-      .init()
-      .then((_) => NotificationService.instance.rescheduleAll(app)));
-
   runApp(NobatyarApp(data: app));
+
+  // راه‌اندازی نوتیفیکیشن بعد از نخستین فریم تا شروع اپ روان بماند
+  // (ساخت پلاگین + دیالوگ مجوز کار سنگین‌تری هستند)
+  unawaited(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await NotificationService.instance.init();
+    await NotificationService.instance.rescheduleAll(app);
+  }());
 }
 
 class NobatyarApp extends StatelessWidget {
@@ -34,8 +39,10 @@ class NobatyarApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // فقط به تغییر «تم» گوش می‌دهیم — تغییر داده‌های عادی نباید
+    // کل MaterialApp و ساخت هر دو تم را در هر build تکرار کند
     return ListenableBuilder(
-      listenable: data,
+      listenable: data.theme,
       builder: (context, _) {
         final mode = switch (data.settings.themeMode) {
           AppThemeMode.system => ThemeMode.system,

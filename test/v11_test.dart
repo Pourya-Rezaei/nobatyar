@@ -1,9 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nobatyar/app_data.dart';
-import 'package:nobatyar/jalali.dart';
-import 'package:nobatyar/models.dart';
-import 'package:nobatyar/storage.dart';
+import 'package:nobatyar/data/app_data.dart';
+import 'package:nobatyar/core/jalali.dart';
+import 'package:nobatyar/data/models.dart';
+import 'package:nobatyar/data/storage.dart';
+import 'package:nobatyar/services/backup_service.dart';
 
 void main() {
   group('قالب‌بندی پول', () {
@@ -202,13 +203,12 @@ void main() {
         ],
       ));
 
-      final exported = src.exportJson();
+      final exported = src.backupMap();
       expect(exported['app'], 'nobatyar');
       expect(exported['format'], 2);
 
       final dst = AppData(MemoryStore());
-      final err = dst.importJson(exported);
-      expect(err, isNull);
+      dst.applyBackup(BackupService.validateBackup(exported));
       expect(dst.appts.length, 1);
       expect(dst.appts.first.price, 450000);
       expect(dst.settings.name, 'کلینیک رز');
@@ -216,9 +216,27 @@ void main() {
     });
 
     test('رد فایل نامعتبر', () {
-      final data = AppData(MemoryStore());
-      expect(data.importJson({'app': 'other'}), isNotNull);
-      expect(data.importJson({'app': 'nobatyar', 'appointments': 'x'}), isNotNull);
+      expect(
+        () => BackupService.validateBackup({'app': 'other'}),
+        throwsA(isA<BackupException>()),
+      );
+      expect(
+        () => BackupService.validateBackup(
+            {'app': 'nobatyar', 'appointments': 'x'}),
+        throwsA(isA<BackupException>()),
+      );
+      // تاریخ و ساعت خارج از محدوده رد می‌شود
+      expect(
+        () => BackupService.validateBackup({
+          'app': 'nobatyar',
+          'format': 2,
+          'settings': BizSettings().toJson(),
+          'appointments': [
+            {'id': '1', 'name': 'a', 'service': 's', 'dateKey': 99999999, 'time': 5}
+          ],
+        }),
+        throwsA(isA<BackupException>()),
+      );
     });
 
     test('سرویس‌های پیش‌فرض پس از تغییر نوع', () {

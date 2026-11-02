@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nobatyar/app_data.dart';
-import 'package:nobatyar/jalali.dart';
+import 'package:nobatyar/core/jalali.dart';
+import 'package:nobatyar/data/app_data.dart';
+import 'package:nobatyar/data/models.dart';
+import 'package:nobatyar/data/storage.dart';
 import 'package:nobatyar/main.dart';
-import 'package:nobatyar/models.dart';
-import 'package:nobatyar/storage.dart';
 
 /// بارگذاری فونت واقعی وزیرمتن و آیکون‌های متریال برای رندر درست در تست
 Future<void> _loadFonts() async {

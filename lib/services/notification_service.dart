@@ -5,9 +5,9 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
-import 'app_data.dart';
-import 'jalali.dart';
-import 'models.dart';
+import '../core/jalali.dart';
+import '../data/app_data.dart';
+import '../data/models.dart';
 
 /// سرویس نوتیفیکیشن محلی — یادآوری نوبت‌ها و خلاصه صبحگاهی
 /// همه‌چیز آفلاین است و داده‌ای جایی ارسال نمی‌شود.

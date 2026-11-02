@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:nobatyar/jalali.dart';
+import 'package:nobatyar/core/jalali.dart';
 
 void main() {
   group('تقویم شمسی', () {

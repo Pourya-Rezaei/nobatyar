@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../app_data.dart';
+import '../../data/app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/models.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/appointment_form.dart';
 
@@ -92,8 +92,18 @@ class _HomeScreenState extends State<HomeScreen> {
               .where((a) => a.status == ApptStatus.canceled)
               .length;
           final remaining = dayAppts.length - done - canceled;
-          final income = app.dayIncome(_selected.dateKey);
-          final expected = app.dayExpected(_selected.dateKey);
+          // درآمد از همان لیست روز محاسبه می‌شود (بدون پیمایش تکراری)
+          var income = 0;
+          var expected = 0;
+          for (final a in dayAppts) {
+            if (a.price == null) continue;
+            if (a.status == ApptStatus.done) {
+              income += a.price!;
+            } else if (a.status == ApptStatus.pending ||
+                a.status == ApptStatus.confirmed) {
+              expected += a.price!;
+            }
+          }
 
           return ListView(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 110),

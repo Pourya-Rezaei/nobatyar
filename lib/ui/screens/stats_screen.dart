@@ -1,10 +1,10 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 
-import '../app_data.dart';
+import '../../data/app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/models.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
 
 /// آمار و نمودارها: وضعیت نوبت‌ها، روزهای پرمراجعه و روند ماهانه
 class StatsScreen extends StatelessWidget {
@@ -178,9 +178,7 @@ class _SummaryRow extends StatelessWidget {
             icon: Icons.payments_outlined,
             color: green,
             label: 'درآمد کل',
-            value: app.totalIncome > 0
-                ? _shortMoney(app.totalIncome)
-                : '—',
+            value: app.totalIncome > 0 ? _shortMoney(app.totalIncome) : '—',
           ),
         ),
       ],
@@ -192,12 +190,7 @@ class _SummaryRow extends StatelessWidget {
 String _shortMoney(int v) {
   if (v >= 1000000) {
     final m = v / 1000000.0;
-    final s = m >= 10
-        ? m.toStringAsFixed(0)
-        : (m * 10).round() / 10 == (m * 10).round() / 10
-            ? m.toStringAsFixed(1)
-            : m.toStringAsFixed(1);
-    return '${faDigits(s)} م.ت';
+    return '${faDigits(m >= 10 ? m.toStringAsFixed(0) : m.toStringAsFixed(1))} م.ت';
   }
   return '${faMoney(v)} ت';
 }
@@ -264,21 +257,29 @@ class _StatusDonut extends StatelessWidget {
     final brightness = theme.brightness;
     final total = app.appts.length;
 
+    // شمارش هر وضعیت فقط یک‌بار (نه به ازای هر سطرِ راهنما)
+    final counts = <ApptStatus, int>{};
+    for (final a in app.appts) {
+      counts[a.status] = (counts[a.status] ?? 0) + 1;
+    }
+
     final sections = <PieChartSectionData>[];
     for (final s in ApptStatus.values) {
-      final count = app.appts.where((a) => a.status == s).length;
+      final count = counts[s] ?? 0;
       if (count == 0) continue;
-      sections.add(PieChartSectionData(
-        value: count.toDouble(),
-        color: statusColor(brightness, s),
-        radius: 46,
-        title: faNum(count),
-        titleStyle: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w800,
-          color: theme.colorScheme.onSurface,
+      sections.add(
+        PieChartSectionData(
+          value: count.toDouble(),
+          color: statusColor(brightness, s),
+          radius: 46,
+          title: faNum(count),
+          titleStyle: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.onSurface,
+          ),
         ),
-      ));
+      );
     }
 
     return Container(
@@ -294,11 +295,14 @@ class _StatusDonut extends StatelessWidget {
             flex: 5,
             child: SizedBox(
               height: 150,
-              child: PieChart(
-                PieChartData(
-                  sections: sections,
-                  centerSpaceRadius: 38,
-                  sectionsSpace: 2,
+              // RepaintBoundary نقاشی نمودار را از بقیه صفحه ایزوله می‌کند
+              child: RepaintBoundary(
+                child: PieChart(
+                  PieChartData(
+                    sections: sections,
+                    centerSpaceRadius: 38,
+                    sectionsSpace: 2,
+                  ),
                 ),
               ),
             ),
@@ -310,7 +314,7 @@ class _StatusDonut extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 for (final s in ApptStatus.values)
-                  if (app.appts.any((a) => a.status == s))
+                  if (counts[s] != null)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 4),
                       child: Row(
@@ -327,12 +331,11 @@ class _StatusDonut extends StatelessWidget {
                           Expanded(
                             child: Text(
                               s.label,
-                              style:
-                                  const TextStyle(fontSize: 12.5),
+                              style: const TextStyle(fontSize: 12.5),
                             ),
                           ),
                           Text(
-                            '${faNum(app.appts.where((a) => a.status == s).length)} (${faNum((app.appts.where((a) => a.status == s).length * 100 / total).round())}٪)',
+                            '${faNum(counts[s] ?? 0)} (${faNum(((counts[s] ?? 0) * 100 / total).round())}٪)',
                             style: TextStyle(
                               fontSize: 11.5,
                               fontWeight: FontWeight.w700,
@@ -381,48 +384,53 @@ class _WeekdayBars extends StatelessWidget {
         children: [
           SizedBox(
             height: 130,
-            child: BarChart(
-              BarChartData(
-                maxY: (max + 1).toDouble(),
-                gridData: const FlGridData(show: false),
-                borderData: FlBorderData(show: false),
-                titlesData: FlTitlesData(
-                  leftTitles: const AxisTitles(),
-                  topTitles: const AxisTitles(),
-                  rightTitles: const AxisTitles(),
-                  bottomTitles: AxisTitles(
-                    sideTitles: SideTitles(
-                      showTitles: true,
-                      reservedSize: 26,
-                      getTitlesWidget: (value, meta) => SideTitleWidget(
-                        meta: meta,
-                        child: Text(
-                          kWeekDaysShort[value.toInt().clamp(0, 6)],
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: theme.colorScheme.onSurfaceVariant,
+            child: RepaintBoundary(
+              child: BarChart(
+                BarChartData(
+                  maxY: (max + 1).toDouble(),
+                  gridData: const FlGridData(show: false),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(),
+                    topTitles: const AxisTitles(),
+                    rightTitles: const AxisTitles(),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 26,
+                        getTitlesWidget: (value, meta) => SideTitleWidget(
+                          meta: meta,
+                          child: Text(
+                            kWeekDaysShort[value.toInt().clamp(0, 6)],
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ),
                       ),
                     ),
                   ),
+                  barGroups: [
+                    for (var i = 0; i < 7; i++)
+                      BarChartGroupData(
+                        x: i,
+                        barRods: [
+                          BarChartRodData(
+                            toY: counts[i].toDouble(),
+                            color: pal.primary.withValues(
+                              alpha:
+                                  0.35 +
+                                  0.65 * (max == 0 ? 0 : counts[i] / max),
+                            ),
+                            width: 18,
+                            borderRadius: BorderRadius.circular(5),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
-                barGroups: [
-                  for (var i = 0; i < 7; i++)
-                    BarChartGroupData(
-                      x: i,
-                      barRods: [
-                        BarChartRodData(
-                          toY: counts[i].toDouble(),
-                          color: pal.primary.withValues(
-                              alpha: 0.35 + 0.65 * (max == 0 ? 0 : counts[i] / max)),
-                          width: 18,
-                          borderRadius: BorderRadius.circular(5),
-                        ),
-                      ],
-                    ),
-                ],
               ),
             ),
           ),
@@ -488,57 +496,61 @@ class _MonthlyBars extends StatelessWidget {
       ),
       child: SizedBox(
         height: 150,
-        child: BarChart(
-          BarChartData(
-            maxY: max == 0 ? 1 : max * 1.15,
-            gridData: const FlGridData(show: false),
-            borderData: FlBorderData(show: false),
-            titlesData: FlTitlesData(
-              leftTitles: const AxisTitles(),
-              topTitles: const AxisTitles(),
-              rightTitles: const AxisTitles(),
-              bottomTitles: AxisTitles(
-                sideTitles: SideTitles(
-                  showTitles: true,
-                  reservedSize: 30,
-                  interval: 1,
-                  getTitlesWidget: (value, meta) {
-                    final i = value.toInt();
-                    if (i < 0 || i >= labels.length) {
-                      return const SizedBox.shrink();
-                    }
-                    return SideTitleWidget(
-                      meta: meta,
-                      child: Text(
-                        labels[i],
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w600,
-                          color: theme.colorScheme.onSurfaceVariant,
+        child: RepaintBoundary(
+          child: BarChart(
+            BarChartData(
+              maxY: max == 0 ? 1 : max * 1.15,
+              gridData: const FlGridData(show: false),
+              borderData: FlBorderData(show: false),
+              titlesData: FlTitlesData(
+                leftTitles: const AxisTitles(),
+                topTitles: const AxisTitles(),
+                rightTitles: const AxisTitles(),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 30,
+                    interval: 1,
+                    getTitlesWidget: (value, meta) {
+                      final i = value.toInt();
+                      if (i < 0 || i >= labels.length) {
+                        return const SizedBox.shrink();
+                      }
+                      return SideTitleWidget(
+                        meta: meta,
+                        child: Text(
+                          labels[i],
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
+              barGroups: [
+                for (var i = 0; i < values.length; i++)
+                  BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: values[i],
+                        color: revenue
+                            ? statusColor(
+                                theme.brightness,
+                                ApptStatus.done,
+                              ).withValues(alpha: 0.85)
+                            : pal.primary.withValues(alpha: 0.85),
+                        width: 20,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                    ],
+                  ),
+              ],
             ),
-            barGroups: [
-              for (var i = 0; i < values.length; i++)
-                BarChartGroupData(
-                  x: i,
-                  barRods: [
-                    BarChartRodData(
-                      toY: values[i],
-                      color: revenue
-                          ? statusColor(theme.brightness, ApptStatus.done)
-                              .withValues(alpha: 0.85)
-                          : pal.primary.withValues(alpha: 0.85),
-                      width: 20,
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                  ],
-                ),
-            ],
           ),
         ),
       ),

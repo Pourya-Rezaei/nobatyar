@@ -2,41 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../core/jalali.dart';
+import '../services/notification_service.dart';
 import 'models.dart';
-import 'jalali.dart';
-import 'notification_service.dart';
 import 'storage.dart';
 
-/// پرونده مشتری: همه نوبت‌های یک نفر (گروه‌بندی بر اساس شماره تماس یا نام)
-class CustomerProfile {
-  final String key;
-  final String name;
-  final String phone;
-  final List<Appt> appts; // جدیدترین اول
-
-  const CustomerProfile({
-    required this.key,
-    required this.name,
-    required this.phone,
-    required this.appts,
-  });
-
-  int get doneCount =>
-      appts.where((a) => a.status == ApptStatus.done).length;
-
-  int get totalSpent => appts
-      .where((a) => a.status == ApptStatus.done)
-      .fold<int>(0, (sum, a) => sum + (a.price ?? 0));
-
-  Appt? get lastVisit {
-    for (final a in appts) {
-      if (a.status == ApptStatus.done) return a;
-    }
-    return null;
-  }
-}
-
-/// وضعیت مرکزی اپلیکیشن؛ هر تغییری در داده‌ها همه صفحه‌ها را به‌روز می‌کند
+/// وضعیت مرکزی اپلیکیشن (ChangeNotifier).
+///
+/// مسئولیت‌ها:
+///  - نگهداری نوبت‌ها و تنظیمات روی [store] (لایه ذخیره‌سازی)
+///  - همگام‌سازی یادآوری‌های نوتیفیکیشن با تغییرات داده
+///  - محاسبات سبک آماری + کش مشتقات پرتکرار
+///
+/// فرمت فایل پشتیبان و رمزنگاری آن در `services/backup_service.dart` است.
 class AppData extends ChangeNotifier {
   final AppStore store;
 
@@ -45,11 +23,69 @@ class AppData extends ChangeNotifier {
   List<Appt> get appts => store.appointments;
   BizSettings get settings => store.settings;
 
+  /// نوتیفایر جداگانهٔ تم — فقط با تغییر واقعی تم فعال می‌شود تا
+  /// کل MaterialApp (و ساخت هر دو تم) با هر تغییر داده بازسازی نشود.
+  final ChangeNotifier theme = ChangeNotifier();
+
+  // ---------------------------------------------------------------
+  // کش مشتقات — با هر تغییر داده بی‌اعتبار می‌شود
+
+  List<CustomerProfile>? _customersCache;
+
+  /// گروه‌بندی مشتریان؛ کش‌شده تا در هر build بازمحاسبه نشود
+  List<CustomerProfile> get customers =>
+      _customersCache ??= _computeCustomers();
+
+  List<CustomerProfile> _computeCustomers() {
+    final groups = <String, List<Appt>>{};
+    final names = <String, String>{};
+    final phones = <String, String>{};
+    for (final a in appts) {
+      final hasPhone = a.phone.trim().isNotEmpty;
+      final key = hasPhone ? 'p:${a.phone.trim()}' : 'n:${a.name.trim()}';
+      groups.putIfAbsent(key, () => []).add(a);
+      names[key] = a.name;
+      if (hasPhone) phones[key] = a.phone.trim();
+    }
+    final out = <CustomerProfile>[];
+    groups.forEach((key, list) {
+      list.sort((a, b) {
+        final c = b.dateKey.compareTo(a.dateKey);
+        return c != 0 ? c : b.time.compareTo(a.time);
+      });
+      out.add(CustomerProfile(
+        key: key,
+        name: names[key] ?? '',
+        phone: phones[key] ?? '',
+        appts: list,
+      ));
+    });
+    // بیشترین مراجعه اول
+    out.sort((a, b) {
+      final c = b.appts.length.compareTo(a.appts.length);
+      if (c != 0) return c;
+      return (b.lastVisit?.dateKey ?? 0).compareTo(a.lastVisit?.dateKey ?? 0);
+    });
+    return out;
+  }
+
+  CustomerProfile? customerByKey(String key) {
+    for (final c in customers) {
+      if (c.key == key) return c;
+    }
+    return null;
+  }
+
+  void _invalidate() {
+    _customersCache = null;
+  }
+
   // ---------------------------------------------------------------
   // نوبت‌ها
 
   void addAppt(Appt a) {
     store.appointments.add(a);
+    _invalidate();
     unawaited(store.saveAppts());
     _syncReminder(a);
     _syncMorningSummary();
@@ -59,6 +95,7 @@ class AppData extends ChangeNotifier {
   void updateAppt(Appt a) {
     final i = store.appointments.indexWhere((x) => x.id == a.id);
     if (i >= 0) store.appointments[i] = a;
+    _invalidate();
     unawaited(store.saveAppts());
     _syncReminder(a);
     _syncMorningSummary();
@@ -67,6 +104,7 @@ class AppData extends ChangeNotifier {
 
   void removeAppt(String id) {
     store.appointments.removeWhere((x) => x.id == id);
+    _invalidate();
     unawaited(store.saveAppts());
     unawaited(NotificationService.instance.cancelApptReminder(id));
     _syncMorningSummary();
@@ -75,8 +113,9 @@ class AppData extends ChangeNotifier {
 
   void clearAll() {
     store.appointments.clear();
+    _invalidate();
     unawaited(store.saveAppts());
-    unawaited(NotificationService.instance.rescheduleAll(this));
+    _resyncRemindersNow();
     notifyListeners();
   }
 
@@ -84,11 +123,36 @@ class AppData extends ChangeNotifier {
   // تنظیمات
 
   void updateSettings(BizSettings s) {
+    final old = store.settings;
     store.settings = s;
+    _invalidate(); // نام/خدمات/قیمت‌ها در متن‌ها دیده می‌شوند
     unawaited(store.saveSettings());
-    // تنظیمات یادآوری/نام/قیمت‌ها ممکن است متن و زمان یادآوری‌ها را تغییر دهد
-    unawaited(NotificationService.instance.rescheduleAll(this));
+    if (s.themeMode != old.themeMode) theme.notifyListeners();
+    // چیدمان دوبارهٔ اعلان‌ها با تأخیر کوتاه انجام می‌شود تا
+    // تایپ پیوسته (مثلاً ویرایش نام کسب‌وکار) کار اضافه ایجاد نکند
+    _scheduleResync();
     notifyListeners();
+  }
+
+  Timer? _resyncDebounce;
+
+  void _scheduleResync() {
+    _resyncDebounce?.cancel();
+    _resyncDebounce = Timer(const Duration(seconds: 2), () {
+      unawaited(NotificationService.instance.rescheduleAll(this));
+    });
+  }
+
+  void _resyncRemindersNow() {
+    _resyncDebounce?.cancel();
+    unawaited(NotificationService.instance.rescheduleAll(this));
+  }
+
+  @override
+  void dispose() {
+    _resyncDebounce?.cancel();
+    theme.dispose();
+    super.dispose();
   }
 
   // ---------------------------------------------------------------
@@ -139,50 +203,6 @@ class AppData extends ChangeNotifier {
       .fold<int>(0, (sum, a) => sum + (a.price ?? 0));
 
   // ---------------------------------------------------------------
-  // مشتریان
-
-  /// گروه‌بندی نوبت‌ها بر اساس مشتری؛ کلید = شماره تماس یا نام
-  List<CustomerProfile> get customers {
-    final groups = <String, List<Appt>>{};
-    final names = <String, String>{};
-    final phones = <String, String>{};
-    for (final a in appts) {
-      final hasPhone = a.phone.trim().isNotEmpty;
-      final key = hasPhone ? 'p:${a.phone.trim()}' : 'n:${a.name.trim()}';
-      groups.putIfAbsent(key, () => []).add(a);
-      names[key] = a.name;
-      if (hasPhone) phones[key] = a.phone.trim();
-    }
-    final out = <CustomerProfile>[];
-    groups.forEach((key, list) {
-      list.sort((a, b) {
-        final c = b.dateKey.compareTo(a.dateKey);
-        return c != 0 ? c : b.time.compareTo(a.time);
-      });
-      out.add(CustomerProfile(
-        key: key,
-        name: names[key] ?? '',
-        phone: phones[key] ?? '',
-        appts: list,
-      ));
-    });
-    // بیشترین مراجعه اول
-    out.sort((a, b) {
-      final c = b.appts.length.compareTo(a.appts.length);
-      if (c != 0) return c;
-      return (b.lastVisit?.dateKey ?? 0).compareTo(a.lastVisit?.dateKey ?? 0);
-    });
-    return out;
-  }
-
-  CustomerProfile? customerByKey(String key) {
-    for (final c in customers) {
-      if (c.key == key) return c;
-    }
-    return null;
-  }
-
-  // ---------------------------------------------------------------
   // بلاک‌ها و اسلات‌ها
 
   /// بازه‌های زمانی قابل رزرو برای یک روز (با احتساب تعطیلی‌ها)
@@ -197,10 +217,10 @@ class AppData extends ChangeNotifier {
   }
 
   // ---------------------------------------------------------------
-  // پشتیبان‌گیری و بازگردانی
+  // پشتیبان‌گیری (ساخت/اعمال داده — فرمت و رمز در BackupService)
 
-  /// خروجی JSON کامل داده‌ها
-  Map<String, dynamic> exportJson() => {
+  /// نقشهٔ کامل داده‌ها برای خروجی پشتیبان
+  Map<String, dynamic> backupMap() => {
         'app': 'nobatyar',
         'format': 2,
         'exportedAt': DateTime.now().toIso8601String(),
@@ -208,31 +228,22 @@ class AppData extends ChangeNotifier {
         'appointments': appts.map((a) => a.toJson()).toList(),
       };
 
-  /// بازگردانی از JSON پشتیبان؛ خروجی پیام خطا یا null در صورت موفقیت
-  String? importJson(Map<String, dynamic> j) {
-    if (j['app'] != 'nobatyar') return 'این فایل پشتیبان نوبت‌یار نیست.';
-    final rawAppts = j['appointments'];
-    if (rawAppts is! List) return 'ساختار فایل پشتیبان معتبر نیست.';
-    final rawSettings = j['settings'];
-    if (rawSettings is! Map<String, dynamic>) {
-      return 'ساختار فایل پشتیبان معتبر نیست.';
-    }
-
+  /// اعمال پشتیبانِ از پیش اعتبارسنجی‌شده (توسط BackupService.readBackup).
+  /// داده‌های فعلی کاملاً جایگزین می‌شوند.
+  void applyBackup(Map<String, dynamic> j) {
     final restored = <Appt>[];
-    for (final e in rawAppts) {
-      if (e is! Map<String, dynamic>) continue;
-      final a = Appt.fromJson(e);
-      if (a.id.isNotEmpty && a.dateKey > 0) restored.add(a);
+    for (final e in j['appointments'] as List) {
+      restored.add(Appt.fromJson(e as Map<String, dynamic>));
     }
-
     store.appointments
       ..clear()
       ..addAll(restored);
-    store.settings = BizSettings.fromJson(rawSettings);
+    store.settings =
+        BizSettings.fromJson(j['settings'] as Map<String, dynamic>);
+    _invalidate();
     unawaited(store.saveAppts());
     unawaited(store.saveSettings());
-    unawaited(NotificationService.instance.rescheduleAll(this));
+    _resyncRemindersNow();
     notifyListeners();
-    return null;
   }
 }

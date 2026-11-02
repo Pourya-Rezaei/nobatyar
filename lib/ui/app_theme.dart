@@ -62,8 +62,15 @@ class AppPalette {
       Theme.of(c).brightness == Brightness.dark ? dark : light;
 }
 
-/// تم اپ برای هر دو حالت روشن و تیره
-ThemeData buildAppTheme(Brightness brightness) {
+/// کش تم‌های ساخته‌شده — ساخت ThemeData سنگین است و فقط
+/// یک بار در عمر برنامه باید انجام شود
+final Map<Brightness, ThemeData> _themeCache = {};
+
+/// تم اپ برای هر دو حالت روشن و تیره (کش‌شده)
+ThemeData buildAppTheme(Brightness brightness) =>
+    _themeCache[brightness] ??= _buildTheme(brightness);
+
+ThemeData _buildTheme(Brightness brightness) {
   final p = brightness == Brightness.dark ? AppPalette.dark : AppPalette.light;
 
   final scheme = ColorScheme(

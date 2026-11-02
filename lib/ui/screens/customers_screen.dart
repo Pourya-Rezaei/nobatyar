@@ -1,10 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../app_data.dart';
+import '../../data/app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/models.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/appointment_form.dart';
 
@@ -21,11 +23,21 @@ class CustomersScreen extends StatefulWidget {
 class _CustomersScreenState extends State<CustomersScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
+  Timer? _searchDebounce;
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  /// جستجو با تأخیر کوتاه برای پرهیز از فیلتر پیوسته
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _query = v);
+    });
   }
 
   @override
@@ -50,7 +62,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _query = v),
+                  onChanged: _onSearchChanged,
                   decoration: InputDecoration(
                     hintText: 'جستجوی نام یا شماره تماس…',
                     prefixIcon: const Icon(Icons.search, size: 21),
@@ -59,6 +71,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
                         : IconButton(
                             icon: const Icon(Icons.close, size: 19),
                             onPressed: () {
+                              _searchDebounce?.cancel();
                               _searchCtrl.clear();
                               setState(() => _query = '');
                             },
@@ -69,18 +82,17 @@ class _CustomersScreenState extends State<CustomersScreen> {
               Expanded(
                 child: customers.isEmpty
                     ? _EmptyCustomers(hasAny: app.customers.isNotEmpty)
-                    : ListView(
+                    : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(20, 14, 20, 32),
-                        children: [
-                          for (final c in customers)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: _CustomerTile(
-                                customer: c,
-                                onTap: () => _openCustomer(context, c.key),
-                              ),
-                            ),
-                        ],
+                        itemCount: customers.length,
+                        itemBuilder: (context, i) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: _CustomerTile(
+                            customer: customers[i],
+                            onTap: () =>
+                                _openCustomer(context, customers[i].key),
+                          ),
+                        ),
                       ),
               ),
             ],
@@ -288,159 +300,163 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
           }
           final last = c.lastVisit;
 
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-            children: [
-              // سربرگ پرونده
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: theme.colorScheme.surface,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: pal.hairline),
-                ),
-                child: Column(
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 54,
-                          height: 54,
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topRight,
-                              end: Alignment.bottomLeft,
-                              colors: [pal.primaryDeep, pal.primary],
-                            ),
-                            borderRadius: BorderRadius.circular(16),
+          // بخش‌های ثابت بالای تاریخچه — کارت‌ها به‌صورت تنبل ساخته می‌شوند
+          final fixed = <Widget>[
+            // سربرگ پرونده
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: pal.hairline),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 54,
+                        height: 54,
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topRight,
+                            end: Alignment.bottomLeft,
+                            colors: [pal.primaryDeep, pal.primary],
                           ),
-                          alignment: Alignment.center,
-                          child: Text(
-                            c.name.trim().isEmpty
-                                ? '؟'
-                                : c.name.trim().characters.first,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.w800,
-                              color: pal.onPrimary,
-                            ),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        alignment: Alignment.center,
+                        child: Text(
+                          c.name.trim().isEmpty
+                              ? '؟'
+                              : c.name.trim().characters.first,
+                          style: TextStyle(
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            color: pal.onPrimary,
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              c.name,
+                              style: const TextStyle(
+                                fontSize: 16.5,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            if (c.phone.isNotEmpty) ...[
+                              const SizedBox(height: 3),
                               Text(
-                                c.name,
-                                style: const TextStyle(
-                                  fontSize: 16.5,
-                                  fontWeight: FontWeight.w800,
+                                c.phone,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color:
+                                      theme.colorScheme.onSurfaceVariant,
                                 ),
                               ),
-                              if (c.phone.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  c.phone,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
                             ],
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _MiniStat(
-                            label: 'کل نوبت‌ها',
-                            value: faNum(c.appts.length),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MiniStat(
-                            label: 'انجام‌شده',
-                            value: faNum(c.doneCount),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _MiniStat(
-                            label: 'مجموع پرداخت',
-                            value:
-                                '${faMoney(c.totalSpent)} ت',
-                            highlight: green,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (last != null) ...[
-                      const SizedBox(height: 10),
-                      Text(
-                        'آخرین مراجعه: ${last.date.weekDayName} ${last.date.fullText}',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: theme.colorScheme.onSurfaceVariant,
+                          ],
                         ),
                       ),
                     ],
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-              // دکمه‌های اقدام
-              Row(
-                children: [
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: () => showAppointmentSheet(
-                        context,
-                        app,
-                        initialName: c.name,
-                        initialPhone: c.phone,
-                      ),
-                      icon: const Icon(Icons.add, size: 19),
-                      label: const Text('نوبت جدید'),
-                    ),
                   ),
-                  if (c.phone.isNotEmpty) ...[
-                    const SizedBox(width: 10),
-                    _CircleAction(
-                      icon: Icons.call_outlined,
-                      onTap: () async {
-                        await Clipboard.setData(
-                            ClipboardData(text: c.phone));
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                                content: Text('شماره تماس کپی شد')),
-                          );
-                        }
-                      },
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _MiniStat(
+                          label: 'کل نوبت‌ها',
+                          value: faNum(c.appts.length),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _MiniStat(
+                          label: 'انجام‌شده',
+                          value: faNum(c.doneCount),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: _MiniStat(
+                          label: 'مجموع پرداخت',
+                          value: '${faMoney(c.totalSpent)} ت',
+                          highlight: green,
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (last != null) ...[
+                    const SizedBox(height: 10),
+                    Text(
+                      'آخرین مراجعه: ${last.date.weekDayName} ${last.date.fullText}',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                 ],
               ),
-              const SizedBox(height: 18),
-              Text(
-                'تاریخچه نوبت‌ها',
-                style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.w800),
-              ),
-              const SizedBox(height: 10),
-              ...c.appts.map(
-                (a) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: AppointmentCard(app: app, appt: a),
+            ),
+            const SizedBox(height: 14),
+            // دکمه‌های اقدام
+            Row(
+              children: [
+                Expanded(
+                  child: FilledButton.icon(
+                    onPressed: () => showAppointmentSheet(
+                      context,
+                      app,
+                      initialName: c.name,
+                      initialPhone: c.phone,
+                    ),
+                    icon: const Icon(Icons.add, size: 19),
+                    label: const Text('نوبت جدید'),
+                  ),
                 ),
-              ),
-            ],
+                if (c.phone.isNotEmpty) ...[
+                  const SizedBox(width: 10),
+                  _CircleAction(
+                    icon: Icons.call_outlined,
+                    onTap: () async {
+                      await Clipboard.setData(
+                          ClipboardData(text: c.phone));
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                              content: Text('شماره تماس کپی شد')),
+                        );
+                      }
+                    },
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'تاریخچه نوبت‌ها',
+              style: const TextStyle(
+                  fontSize: 15, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 10),
+          ];
+
+          return ListView.builder(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+            itemCount: fixed.length + c.appts.length,
+            itemBuilder: (context, i) => i < fixed.length
+                ? fixed[i]
+                : Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: AppointmentCard(
+                        app: app, appt: c.appts[i - fixed.length]),
+                  ),
           );
         },
       ),

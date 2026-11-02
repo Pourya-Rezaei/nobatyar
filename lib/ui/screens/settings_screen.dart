@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -6,11 +5,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:share_plus/share_plus.dart';
 
-import '../app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/app_data.dart';
+import '../../data/models.dart';
+import '../../services/backup_service.dart';
+import '../../services/notification_service.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
-import '../notification_service.dart';
 import '../widgets/jalali_picker.dart';
 
 /// تنظیمات کسب‌وکار، خدمات و قیمت‌ها، ساعات کاری، یادآوری‌ها، ظاهر و داده‌ها
@@ -101,21 +101,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
   // ---------------------------------------------------------------
   // پشتیبان‌گیری
 
+  /// انتخاب نوع خروجی: ساده (JSON) یا رمزدار (AES-256)
   Future<void> _exportBackup() async {
     final app = widget.data;
     final messenger = ScaffoldMessenger.of(context);
+    final choice = await showDialog<_ExportChoice>(
+      context: context,
+      builder: (ctx) => const _ExportPasswordDialog(),
+    );
+    if (choice == null || !mounted) return;
+
     try {
-      final jsonStr = const JsonEncoder.withIndent('  ').convert(app.exportJson());
-      final name =
-          'nobatyar-backup-${DateTime.now().toIso8601String().split('T').first}.json';
-      final path = '${Directory.systemTemp.path}/$name';
-      await File(path).writeAsString(jsonStr, flush: true);
+      final map = app.backupMap();
+      final date = DateTime.now().toIso8601String().split('T').first;
+      late final String path;
+      late final String mime;
+      if (choice.encrypted) {
+        final bytes =
+            await BackupService.encodeEncrypted(map, choice.password);
+        path = '${Directory.systemTemp.path}/nobatyar-backup-$date.nbk';
+        await File(path).writeAsBytes(bytes, flush: true);
+        mime = 'application/octet-stream';
+      } else {
+        final jsonStr = BackupService.encodePlain(map);
+        path = '${Directory.systemTemp.path}/nobatyar-backup-$date.json';
+        await File(path).writeAsString(jsonStr, flush: true);
+        mime = 'application/json';
+      }
       await SharePlus.instance.share(
         ShareParams(
-          files: [XFile(path, mimeType: 'application/json')],
+          files: [XFile(path, mimeType: mime)],
           title: 'نسخه پشتیبان نوبت‌یار',
         ),
       );
+    } on BackupException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
     } catch (_) {
       messenger.showSnackBar(
         const SnackBar(content: Text('خروجی پشتیبان ساخته نشد — دوباره تلاش کن')),
@@ -129,19 +149,32 @@ class _SettingsScreenState extends State<SettingsScreen> {
     try {
       final result = await FilePicker.pickFiles(
         type: FileType.custom,
-        allowedExtensions: ['json'],
+        allowedExtensions: ['json', 'nbk'],
       );
       final file = result.isEmpty ? null : result.first;
       final path = file?.path;
       if (path == null) return;
 
-      final raw = await File(path).readAsString();
+      var bytes = await File(path).readAsBytes();
       if (!mounted) return;
-      final j = jsonDecode(raw);
-      if (j is! Map<String, dynamic>) throw const FormatException();
 
-      final rawAppts = j['appointments'];
-      final count = rawAppts is List ? rawAppts.length : 0;
+      // فایل رمزدار → اول رمز را بپرس
+      String? password;
+      if (BackupService.isEncrypted(bytes)) {
+        password = await showDialog<String>(
+          context: context,
+          builder: (ctx) => const _PasswordDialog(
+            title: 'رمز پشتیبان',
+            hint: 'رمز این فایل پشتیبان را وارد کن',
+          ),
+        );
+        if (password == null || !mounted) return; // انصراف
+      }
+
+      final j = await BackupService.readBackup(bytes, password);
+      if (!mounted) return;
+
+      final count = (j['appointments'] as List).length;
       final bizName = ((j['settings'] ?? {}) as Map)['name'];
 
       final ok = await showDialog<bool>(
@@ -167,13 +200,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       );
       if (ok != true || !mounted) return;
 
-      final err = app.importJson(j);
+      app.applyBackup(j);
       if (!mounted) return;
       messenger.showSnackBar(SnackBar(
-        content: Text(
-          err ?? 'پشتیبان با موفقیت بازگردانی شد (${faNum(count)} نوبت)',
-        ),
+        content: Text('پشتیبان با موفقیت بازگردانی شد (${faNum(count)} نوبت)'),
       ));
+    } on BackupException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
     } catch (_) {
       messenger.showSnackBar(
         const SnackBar(content: Text('خواندن فایل پشتیبان ممکن نشد')),
@@ -434,7 +467,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                       ),
                       subtitle: Text(
-                        'خروجی فایل برای نگهداری یا انتقال به گوشی دیگر',
+                        'فایل JSON خوانا یا رمزنگاری‌شده با AES-256 برای نگهداری یا انتقال',
                         style: TextStyle(
                             fontSize: 11.5,
                             color: theme.colorScheme.onSurfaceVariant),
@@ -493,7 +526,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 child: Column(
                   children: [
                     Text(
-                      'نوبت‌یار نسخه ۱.۱.۰',
+                      'نوبت‌یار نسخه ۱.۲.۰',
                       style: TextStyle(
                         fontSize: 11.5,
                         color: theme.colorScheme.onSurfaceVariant,
@@ -1354,6 +1387,177 @@ class _BlocksSheetState extends State<_BlocksSheet> {
           ),
         ),
       ),
+    );
+  }
+}
+
+// ===================================================================
+// دیالوگ‌های رمز پشتیبان
+
+/// نتیجهٔ دیالوگ خروجی: ساده یا رمزدار
+class _ExportChoice {
+  final bool encrypted;
+  final String password;
+  const _ExportChoice({required this.encrypted, this.password = ''});
+}
+
+/// دیالوگ انتخاب نوع خروجی پشتیبان + رمز اختیاری
+class _ExportPasswordDialog extends StatefulWidget {
+  const _ExportPasswordDialog();
+
+  @override
+  State<_ExportPasswordDialog> createState() => _ExportPasswordDialogState();
+}
+
+class _ExportPasswordDialogState extends State<_ExportPasswordDialog> {
+  final _pw1 = TextEditingController();
+  final _pw2 = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _pw1.dispose();
+    _pw2.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('تهیه نسخه پشتیبان'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'اگر رمزی وارد کنی، فایل پشتیبان با رمزنگاری AES-256 قفل می‌شود و '
+            'بدون همین رمز روی هیچ دستگاهی باز نمی‌شود.',
+            style: TextStyle(
+              fontSize: 12.5,
+              height: 1.8,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _pw1,
+            obscureText: _obscure,
+            autofillHints: const [AutofillHints.newPassword],
+            decoration: InputDecoration(
+              hintText: 'رمز (اختیاری — حداقل ۴ نویسه)',
+              prefixIcon: const Icon(Icons.password_outlined, size: 21),
+              suffixIcon: IconButton(
+                icon: Icon(
+                  _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                  size: 20,
+                ),
+                onPressed: () => setState(() => _obscure = !_obscure),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: _pw2,
+            obscureText: _obscure,
+            decoration: const InputDecoration(
+              hintText: 'تکرار رمز',
+              prefixIcon: Icon(Icons.repeat, size: 21),
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('انصراف'),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(
+            context,
+            const _ExportChoice(encrypted: false),
+          ),
+          child: const Text('خروجی ساده'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final pw = _pw1.text;
+            if (pw.length < 4) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('رمز باید حداقل ۴ نویسه باشد')),
+              );
+              return;
+            }
+            if (pw != _pw2.text) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('رمز و تکرار آن یکسان نیست')),
+              );
+              return;
+            }
+            Navigator.pop(
+              context,
+              _ExportChoice(encrypted: true, password: pw),
+            );
+          },
+          child: const Text('خروجی رمزدار'),
+        ),
+      ],
+    );
+  }
+}
+
+/// دیالوگ سادهٔ ورود رمز (برای بازکردن پشتیبان رمزدار)
+class _PasswordDialog extends StatefulWidget {
+  final String title;
+  final String hint;
+
+  const _PasswordDialog({required this.title, required this.hint});
+
+  @override
+  State<_PasswordDialog> createState() => _PasswordDialogState();
+}
+
+class _PasswordDialogState extends State<_PasswordDialog> {
+  final _ctrl = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text(widget.title),
+      content: TextField(
+        controller: _ctrl,
+        obscureText: _obscure,
+        autofocus: true,
+        onSubmitted: (v) => Navigator.pop(context, v),
+        decoration: InputDecoration(
+          hintText: widget.hint,
+          prefixIcon: const Icon(Icons.lock_outline, size: 21),
+          suffixIcon: IconButton(
+            icon: Icon(
+              _obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+              size: 20,
+            ),
+            onPressed: () => setState(() => _obscure = !_obscure),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('انصراف'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.pop(context, _ctrl.text),
+          child: const Text('ادامه'),
+        ),
+      ],
     );
   }
 }

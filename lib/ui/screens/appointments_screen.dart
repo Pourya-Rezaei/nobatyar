@@ -1,9 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../app_data.dart';
+import '../../data/app_data.dart';
+import '../../core/jalali.dart';
+import '../../data/models.dart';
 import '../app_theme.dart';
-import '../jalali.dart';
-import '../models.dart';
 import '../widgets/appointment_card.dart';
 import '../widgets/appointment_form.dart';
 import 'stats_screen.dart';
@@ -22,11 +24,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
   final _searchCtrl = TextEditingController();
   String _query = '';
   ApptStatus? _filter;
+  Timer? _searchDebounce;
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  /// جستجو با تأخیر کوتاه — با هر حرف تایپ‌شده، فیلتر و مرتب‌سازی
+  /// کل نوبت‌ها نباید فوراً اجرا شود
+  void _onSearchChanged(String v) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 250), () {
+      if (mounted) setState(() => _query = v);
+    });
   }
 
   bool _matches(Appt a) {
@@ -52,11 +65,9 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
         actions: [
           IconButton(
             tooltip: 'آمار و نمودارها',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => StatsScreen(data: app),
-              ),
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => StatsScreen(data: app))),
             icon: const Icon(Icons.insights_outlined),
           ),
           const SizedBox(width: 6),
@@ -84,13 +95,22 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
             groups.putIfAbsent(a.dateKey, () => []).add(a);
           }
 
+          // فهرست مسطح سرگروه‌ها + کارت‌ها برای ساخت تنبل (builder)
+          final rows = <_Row>[];
+          groups.forEach((dateKey, list) {
+            rows.add(_Row.header(dateKey, list.length));
+            for (final a in list) {
+              rows.add(_Row.appt(a));
+            }
+          });
+
           return Column(
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 8, 20, 0),
                 child: TextField(
                   controller: _searchCtrl,
-                  onChanged: (v) => setState(() => _query = v),
+                  onChanged: _onSearchChanged,
                   decoration: InputDecoration(
                     hintText: 'جستجوی نام، خدمت یا شماره تماس…',
                     prefixIcon: const Icon(Icons.search, size: 21),
@@ -99,6 +119,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         : IconButton(
                             icon: const Icon(Icons.close, size: 19),
                             onPressed: () {
+                              _searchDebounce?.cancel();
                               _searchCtrl.clear();
                               setState(() => _query = '');
                             },
@@ -121,9 +142,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
                         child: _filterChip(
                           s,
                           s.label,
-                          app.appts
-                              .where((a) => a.status == s)
-                              .length,
+                          app.appts.where((a) => a.status == s).length,
                         ),
                       ),
                     ),
@@ -133,24 +152,23 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               Expanded(
                 child: all.isEmpty
                     ? _EmptyResult(hasAny: app.appts.isNotEmpty)
-                    : ListView(
+                    : ListView.builder(
                         padding: const EdgeInsets.fromLTRB(20, 4, 20, 110),
-                        children: [
-                          for (final entry in groups.entries) ...[
-                            _GroupHeader(
-                              date: Jalali.fromKey(entry.key),
+                        itemCount: rows.length,
+                        itemBuilder: (context, i) {
+                          final r = rows[i];
+                          if (r.isHeader) {
+                            return _GroupHeader(
+                              date: Jalali.fromKey(r.dateKey!),
                               today: today,
-                              count: entry.value.length,
-                            ),
-                            ...entry.value.map(
-                              (a) => Padding(
-                                padding: const EdgeInsets.only(top: 10),
-                                child:
-                                    AppointmentCard(app: app, appt: a),
-                              ),
-                            ),
-                          ],
-                        ],
+                              count: r.count!,
+                            );
+                          }
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 10),
+                            child: AppointmentCard(app: app, appt: r.appt!),
+                          );
+                        },
                       ),
               ),
             ],
@@ -198,9 +216,7 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
-                color: selected
-                    ? color
-                    : theme.colorScheme.onSurfaceVariant,
+                color: selected ? color : theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ],
@@ -208,6 +224,19 @@ class _AppointmentsScreenState extends State<AppointmentsScreen> {
       ),
     );
   }
+}
+
+/// یک سطر فهرست مسطح: سرگروه تاریخ یا کارت نوبت
+class _Row {
+  final Appt? appt;
+  final int? dateKey;
+  final int? count;
+
+  const _Row.appt(this.appt) : dateKey = null, count = null;
+
+  const _Row.header(this.dateKey, this.count) : appt = null;
+
+  bool get isHeader => appt == null;
 }
 
 class _GroupHeader extends StatelessWidget {
@@ -284,8 +313,10 @@ class _EmptyResult extends StatelessWidget {
             const SizedBox(height: 16),
             Text(
               hasAny ? 'نوبتی مطابق جستجو پیدا نشد' : 'هنوز نوبتی ثبت نشده',
-              style:
-                  const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w700),
+              style: const TextStyle(
+                fontSize: 15.5,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
